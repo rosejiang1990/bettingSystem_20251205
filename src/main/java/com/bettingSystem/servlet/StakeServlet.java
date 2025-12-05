@@ -13,6 +13,8 @@ import java.util.*;
 @WebServlet("/stake")
 public class StakeServlet extends HttpServlet {
 
+    private final Lock lock = new ReentrantLock();
+
     /**
      * 处理用户投注操作
      * @param request HttpServletRequest对象，包含客户端请求信息
@@ -42,7 +44,7 @@ public class StakeServlet extends HttpServlet {
         }
         //Retrieve betting promotions by customer ID; if the current bet exists, directly add the bet amount;
         //otherwise, create a new bet item and bet amount
-        Map<String, Map<String, List<BigDecimal>>> map = getAmountStakeMap(session, betoferid, amount, customerId);
+        Map<String, Map<String, List<BigDecimal>>> map = getAmountStakeMap(session, betoferid, amount, customerId, response);
         out.println(map.toString());
     }
 
@@ -76,30 +78,37 @@ public class StakeServlet extends HttpServlet {
      * @return 更新后的完整投注金额映射表
      */
     private Map<String, Map<String, List<BigDecimal>>> getAmountStakeMap(HttpSession session,String betoferid,
-                                                                         BigDecimal amount, String customerId){
+                                                                         BigDecimal amount, String customerId,
+                                                                        HttpServletResponse response) throws IOException {
         Map<String, Map<String, List<BigDecimal>>> map = new HashMap<>();
         if(null != session.getAttribute("map")){
             map = (Map<String, Map<String, List<BigDecimal>>>)session.getAttribute("map");
         }
-        synchronized(this){
-            Map<String, List<BigDecimal>> custmpa = map.get(customerId);
-            if(null != custmpa){
-                List<BigDecimal> decimalList = custmpa.get(betoferid);
-                if(null != decimalList && decimalList.size() > 0){
-                    decimalList.add(amount);
+        if (lock.tryLock()) {
+            try{
+                Map<String, List<BigDecimal>> custmpa = map.get(customerId);
+                if(null != custmpa){
+                    List<BigDecimal> decimalList = custmpa.get(betoferid);
+                    if(null != decimalList && decimalList.size() > 0){
+                        decimalList.add(amount);
+                    }else{
+                        List<BigDecimal> bigDecimals = new ArrayList<>();
+                        bigDecimals.add(amount);
+                        custmpa.put(betoferid,bigDecimals);
+                    }
                 }else{
                     List<BigDecimal> bigDecimals = new ArrayList<>();
                     bigDecimals.add(amount);
-                    custmpa.put(betoferid,bigDecimals);
+                    Map<String, List<BigDecimal>> amoutMap = new HashMap<>();
+                    amoutMap.put(betoferid,bigDecimals);
+                    map.put(customerId,amoutMap);
                 }
-            }else{
-                List<BigDecimal> bigDecimals = new ArrayList<>();
-                bigDecimals.add(amount);
-                Map<String, List<BigDecimal>> amoutMap = new HashMap<>();
-                amoutMap.put(betoferid,bigDecimals);
-                map.put(customerId,amoutMap);
+                session.setAttribute("map",map);
+            }finally {
+                lock.unlock();
             }
-            session.setAttribute("map",map);
+        }else{
+            response.getWriter().println("Server busy, please try again later.");
         }
         return map;
     }
