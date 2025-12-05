@@ -14,6 +14,9 @@ import java.io.PrintWriter;
  */
 @WebServlet("/session")
 public class UserSessionServlet extends HttpServlet {
+
+    private final Lock lock = new ReentrantLock();
+    
     /**
      * 获取或生成用户会话token
      * @param request HttpServletRequest对象，包含客户端请求信息
@@ -27,10 +30,18 @@ public class UserSessionServlet extends HttpServlet {
         String token = (String)session.getAttribute(customerid);
         if(token == null || "".equals(token)){
             //If the token does not exist, regenerate it and set the expiration time to 10 minutes
-            synchronized(this){
-                token = RandomUtil.randomToken();
-                session.setAttribute(customerid,token);
-                session.setMaxInactiveInterval(10*60);
+            if (lock.tryLock()) {
+                try {
+                    token = RandomUtil.randomToken();
+                    session.setAttribute(customerid, token);
+                    session.setMaxInactiveInterval(10 * 60);
+                } finally {
+                    lock.unlock();
+                }
+            }else{
+                // 如果无法立即获取锁，返回错误响应
+                response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                response.getWriter().println("Server busy, please try again later.");
             }
         }
         PrintWriter out = response.getWriter();
